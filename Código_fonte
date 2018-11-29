@@ -1,0 +1,340 @@
+//lib necessária para conectar o wifi
+#include <ESP8266WiFi.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+LiquidCrystal_I2C lcd(0x27,2,1,0,4,5,6,7,3, POSITIVE);
+
+#define ECHO_pin D3
+#define TRIGGER_pin D4
+#define PIN_BUZZER D8
+#define sensor D7
+#define touch D6
+
+void display_lcd (int code);
+
+//mensagem enviada pelo client (aplicativo)
+String ClientRequest;
+
+//ip estático, o mesmo deve ser usado no app do smartphone
+IPAddress staticIP(192,168,137,91);
+//gateway, deixe aqui o gateway da rede em que está conectado
+IPAddress gateway(192,168,137,1);
+//máscara, deixe aqui a máscara da rede em que está conectado
+IPAddress subnet(255,255,255,0);
+
+//objeto do servidor
+WiFiServer server(80);
+
+//objeto do cliente
+WiFiClient client;
+
+//variável usada para obter o request do client 
+String myresultat;
+
+//função usada para a leitura do request sem caracteres de quebra de linha como "\n" ou "\r"
+String ReadIncomingRequest()
+{
+  //enquanto houver bytes enviados pelo client 
+  while(client.available()) 
+  {
+    //atribui para a variável String o comando enviado pelo cliente sem "\r"
+    ClientRequest = (client.readStringUntil('\r'));
+
+    //se existir "HTTP/1.1" na String então recebe comando, senão o comando não é aceito
+    //isso verifica que a solicitação seja HTTP/1.1
+    if ((ClientRequest.indexOf("HTTP/1.1")>0))
+      myresultat = ClientRequest;
+  }
+  //retorna variável
+  return myresultat;
+}
+
+void setup()
+{
+  //inicializa varíavel como vazia
+  ClientRequest = "";
+  
+  
+  pinMode(ECHO_pin, INPUT);
+  pinMode(TRIGGER_pin, OUTPUT);
+  digitalWrite(TRIGGER_pin, LOW);
+  pinMode(sensor, INPUT);
+  pinMode(PIN_BUZZER, OUTPUT);
+  pinMode(touch, INPUT);
+  
+  lcd.begin (20,4);
+  //inicializa serial com 9600 bits por segundo
+  Serial.begin(9600);
+  //aguarda 10ms
+  delay(10);
+
+  //A partir daqui conecta wifi
+  Serial.println("START");
+
+  //configura ssid e senha da rede
+  WiFi.begin("Bruno_Stark", "12345678");
+
+  //enquanto não conectar exibe "."
+  while (WiFi.status() != WL_CONNECTED)
+  {
+      delay(500);
+      Serial.print(".");
+  }
+
+  //exibe "conectado"
+  Serial.println("Connected");
+
+  //configura ip estático, gateway e máscara (definidos globais no início do código)
+  WiFi.config(staticIP, gateway, subnet);
+
+  //exibe ip utilizado pelo ESP
+  Serial.println("Your IP is");
+  Serial.println((WiFi.localIP()));
+
+  //inicializa servidor
+  server.begin();
+}
+
+long duracao;
+float distancia, aux;
+
+void loop() {
+
+  display_lcd (0);
+
+  if (digitalRead(touch)==1){
+    display_lcd (1);
+  //}else{
+    //display_lcd (0);
+  }
+  if (digitalRead(sensor) == 0){
+    digitalWrite(PIN_BUZZER, HIGH);
+  }else{
+    digitalWrite(PIN_BUZZER, LOW);
+  }
+
+  WiFiClient client = server.available();
+  if (!client) {
+    return;
+  }
+  
+  Serial.println("new client");
+  while(!client.available()){
+    delay(1);
+  }
+  
+  String request = client.readStringUntil('\r');
+  Serial.println(request);
+  client.flush();
+
+  digitalWrite(TRIGGER_pin, HIGH);
+  delay(10);
+  digitalWrite(TRIGGER_pin, LOW);
+
+  duracao = pulseIn(ECHO_pin, HIGH ,1000000);
+  aux = duracao;
+  distancia = (aux*340/10000)/2;
+  Serial.print("Distancia: ");
+  Serial.println(distancia);
+
+  Serial.print("Duracao: ");
+  Serial.println(duracao);
+
+  delay(1000);
+
+  client.println ("HTTP/1.1 200 OK");
+  client.println ("Content-Type: text/html");
+  client.println ("");
+
+  client.print ("Distancia: ");
+  client.print (distancia);
+
+  client.print (";");
+
+  if (distancia >= 2 && distancia <20 ){
+    //lcd.setBacklight(HIGH);
+    //lcd.setCursor(0,2);
+   // lcd.print("Nivel: Muito Cheio");
+    client.print ("lotado");
+  }else{
+    client.print ("50%");
+  }
+
+  client.print (";");
+  
+  if (distancia >=20 && distancia <30){
+    //lcd.setBacklight(HIGH);
+    //lcd.setCursor(0,2);
+    //lcd.print("Nivel:Cheio");
+    client.print ("atencao");
+  }else{
+    client.print ("75%");
+  }
+
+  client.print (";");
+  
+  if (distancia >=30 && distancia <40){
+    //lcd.setBacklight(HIGH);
+    //lcd.setCursor(0,2);
+    //lcd.print("Nivel: Metade");
+    client.print ("metade");
+  }else{
+    client.print ("100%");
+  }
+  client.print (";");
+  
+  if (distancia >= 40){
+    //lcd.setBacklight(HIGH);
+    //lcd.setCursor(0,2);
+    //lcd.print("Nivel: Vazio");
+    client.print ("vazio");
+  }else{
+    client.print ("cheio");    
+  }
+
+  client.print (";"); 
+  
+  if (digitalRead(sensor) == 0){
+    client.print ("Fogo!");
+  }else{
+    client.print ("Seguro!");
+  }
+  
+  delay(1);
+ 
+}
+
+void display_lcd (int code){
+  //Função_Display
+  switch (code) {
+    case 1: //display_ligado
+      lcd.setBacklight(HIGH);
+
+      digitalWrite(TRIGGER_pin, HIGH);
+      delay(100);
+      digitalWrite(TRIGGER_pin, LOW);
+    
+      duracao = pulseIn(ECHO_pin, HIGH ,100000);
+      aux = duracao;
+      distancia = (aux*340/10000)/2;
+      Serial.print("Distancia: ");
+      Serial.println(distancia);
+    
+      Serial.print("Duracao: ");
+      Serial.println(duracao);
+    
+      delay(1000);
+    
+      if (digitalRead(sensor) == 0 && distancia >= 2 && distancia <20){
+        lcd.setCursor(0,0);
+        lcd.print("LIXEIRA STARK");
+        lcd.setCursor(0,1);
+        lcd.print("Pense e Recicle!");
+        lcd.setCursor(0,2);
+        lcd.print("Nivel: Muito Cheio");
+        lcd.setCursor(0,3);
+        lcd.print("INCENDIO DETECTADO!!!");
+               
+      }
+    
+      if (digitalRead(sensor) == 0 && distancia >=20 && distancia <30){
+        lcd.setCursor(0,0);
+        lcd.print("LIXEIRA STARK");
+        lcd.setCursor(0,1);
+        lcd.print("Pense e Recicle!");
+        lcd.setCursor(0,2);
+        lcd.print("Nivel:             ");
+        lcd.setCursor(0,2);
+        lcd.print("Nivel: Cheio");
+        lcd.setCursor(0,3);
+        lcd.print("INCENDIO DETECTADO!!!");
+               
+      }
+    
+      if (digitalRead(sensor) == 0 && distancia >=30 && distancia <40){
+        lcd.setCursor(0,0);
+        lcd.print("LIXEIRA STARK");
+        lcd.setCursor(0,1);
+        lcd.print("Pense e Recicle!");
+        lcd.setCursor(0,2);
+        lcd.print("Nivel:             ");
+        lcd.setCursor(0,2);
+        lcd.print("Nivel: Metade");
+        lcd.setCursor(0,3);
+        lcd.print("INCENDIO DETECTADO!!!");
+               
+      }
+    
+      if (digitalRead(sensor) == 0 && distancia >=40){
+        lcd.setCursor(0,0);
+        lcd.print("LIXEIRA STARK");
+        lcd.setCursor(0,1);
+        lcd.print("Pense e Recicle!");
+        lcd.setCursor(0,2);
+        lcd.print("Nivel:             ");
+        lcd.setCursor(0,2);
+        lcd.print("Nivel: Vazio!");
+        lcd.setCursor(0,3);
+        lcd.print("INCENDIO DETECTADO!!!");
+               
+      }
+      
+      if (digitalRead(sensor) == 1 && distancia >= 2 && distancia <20){
+        lcd.setCursor(0,0);
+        lcd.print("LIXEIRA STARK");
+        lcd.setCursor(0,1);
+        lcd.print("Pense e Recicle!");
+        lcd.setCursor(0,2);
+        lcd.print("Nivel: Muito Cheio!");
+        lcd.setCursor(0,3);
+        lcd.print("SEGURO!UTLIZE O APK!");
+        
+      }
+    
+      if (digitalRead(sensor) == 1 && distancia >= 20 && distancia <30){
+        lcd.setCursor(0,0);
+        lcd.print("LIXEIRA STARK");
+        lcd.setCursor(0,1);
+        lcd.print("Pense e Recicle!");
+        lcd.setCursor(0,2);
+        lcd.print("Nivel:             ");
+        lcd.setCursor(0,2);
+        lcd.print("Nivel: Cheio!");
+        lcd.setCursor(0,3);
+        lcd.print("SEGURO!UTLIZE O APK!");
+        
+      }
+    
+      if (digitalRead(sensor) == 1 && distancia >= 30 && distancia <40){
+        lcd.setCursor(0,0);
+        lcd.print("LIXEIRA STARK");
+        lcd.setCursor(0,1);
+        lcd.print("Pense e Recicle!");
+        lcd.setCursor(0,2);
+        lcd.print("Nivel:             ");
+        lcd.setCursor(0,2);
+        lcd.print("Nivel: Metade!");
+        lcd.setCursor(0,3);
+        lcd.print("SEGURO!UTLIZE O APK!");
+        
+      }
+    
+      if (digitalRead(sensor) == 1 && distancia >40){
+        lcd.setCursor(0,0);
+        lcd.print("LIXEIRA STARK");
+        lcd.setCursor(0,1);
+        lcd.print("Pense e Recicle!");
+        lcd.setCursor(0,2);
+        lcd.print("Nivel:             ");
+        lcd.setCursor(0,2);
+        lcd.print("Nivel: Vazio!");
+        lcd.setCursor(0,3);
+        lcd.print("SEGURO!UTLIZE O APK!");
+        
+      }
+       
+    default://Desliga_display
+      lcd.setBacklight(LOW);
+  } 
+}
